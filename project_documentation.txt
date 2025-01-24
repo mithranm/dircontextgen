@@ -1,0 +1,1490 @@
+Project Documentation
+===================
+
+Directory Structure
+------------------
+.github
+│   ├── ISSUE_TEMPLATE
+│   │   ├── bug_report.yml
+│   │   ├── config.yml
+│   │   └── feature_request.yml
+│   └── workflows
+│       ├── publish.yml
+│       └── test.yml
+dircontextgen
+│   ├── utils
+│   │   ├── __init__.py
+│   │   ├── file_handling.py
+│   │   ├── ignore_patterns.py
+│   │   └── tree_generation.py
+│   ├── __init__.py
+│   ├── cli.py
+│   └── core.py
+tests
+│   ├── test_data
+│   │   ├── docs
+│   │   │   ├── image.png
+│   │   │   └── large.txt
+│   │   ├── src
+│   │   │   ├── submodule
+│   │   │   │   └── .gitignore
+│   │   │   ├── main.py
+│   │   │   └── utils.py
+│   │   ├── tests
+│   │   │   └── test_main.py
+│   │   ├── .dirignore
+│   │   ├── .dirtarget
+│   │   ├── .gitignore
+│   │   ├── README.md
+│   │   ├── package-lock.json
+│   │   ├── requirements.txt
+│   │   └── setup.py
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_core.py
+│   └── test_utils.py
+.gitignore
+pyproject.toml
+pytest.ini
+setup.cfg
+
+File Contents
+-------------
+
+File: .github/workflows/test.yml
+--------------------------------------------------------------------------------
+name: Run Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov
+        pip install -e .
+        
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=dircontextgen --cov-report=xml --cov-report=term-missing
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: true
+--------------------------------------------------------------------------------
+
+File: tests/conftest.py
+--------------------------------------------------------------------------------
+# tests/conftest.py
+import pytest
+from pathlib import Path
+from .test_utils import create_test_directory, cleanup_test_directory, TEST_DATA_DIR
+
+def pytest_addoption(parser):
+    parser.addoption("--create-test-data", action="store_true",
+                     help="Create test data directory without running tests")
+
+def pytest_configure(config):
+    if config.getoption("--create-test-data"):
+        create_test_directory(debug=True)
+        print(f"Test data directory created at: {TEST_DATA_DIR}")
+        pytest.exit("Test data directory created")
+
+@pytest.fixture(scope="session", autouse=True)
+def create_test_data_once():
+    """Create test data directory once per test session"""
+    create_test_directory()
+
+@pytest.fixture
+def test_data_dir():
+    """Fixture providing path to test data directory"""
+    return TEST_DATA_DIR
+
+@pytest.fixture
+def temp_project(tmp_path):
+    """Fixture providing a temporary directory for tests that modify files"""
+    project = tmp_path / "temp_project"
+    project.mkdir()
+    return project
+--------------------------------------------------------------------------------
+
+File: dircontextgen/__init__.py
+--------------------------------------------------------------------------------
+# dircontextgen/__init__.py
+"""Directory Context Generator package."""
+
+from .core import DocumentationGenerator
+
+__version__ = "0.1.0"
+__all__ = ["DocumentationGenerator"]
+
+# dircontextgen/utils/__init__.py
+"""Utility modules for Directory Context Generator."""
+
+# tests/__init__.py
+"""Tests for Directory Context Generator."""
+--------------------------------------------------------------------------------
+
+File: pytest.ini
+--------------------------------------------------------------------------------
+[pytest]
+testpaths = tests
+python_files = test_*.py
+addopts = --cov=dircontextgen --cov-report=term-missing -v
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+--------------------------------------------------------------------------------
+
+File: .github/ISSUE_TEMPLATE/config.yml
+--------------------------------------------------------------------------------
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/mithranm/dircontextgen/discussions
+    about: Please ask and answer questions here
+  - name: Project Documentation
+    url: https://github.com/mithranm/dircontextgen#readme
+    about: Make sure you've read the documentation
+--------------------------------------------------------------------------------
+
+File: tests/test_core.py
+--------------------------------------------------------------------------------
+# tests/test_core.py
+import pytest
+from pathlib import Path
+from dircontextgen.core import DocumentationGenerator
+
+def test_documentation_generator_init():
+    """Test DocumentationGenerator initialization."""
+    generator = DocumentationGenerator(".")
+    assert generator.base_dir == Path(".")
+    assert generator.tree_only is False
+    assert generator.max_file_size == 1024*1024
+
+def test_documentation_generator_custom_init():
+    """Test DocumentationGenerator initialization with custom values."""
+    generator = DocumentationGenerator(
+        ".",
+        output_file="custom.txt",
+        additional_ignore_files=[".customignore"],
+        target_file=".customtarget",
+        tree_only=True,
+        max_file_size=500000,
+        exclude_patterns=["*.tmp"],
+        include_patterns=["*.py"],
+        verbose=True
+    )
+    assert generator.output_file == Path("custom.txt")
+    assert generator.additional_ignore_files == [".customignore"]
+    assert generator.target_file == ".customtarget"
+    assert generator.tree_only is True
+    assert generator.max_file_size == 500000
+    assert generator.exclude_patterns == ["*.tmp"]
+    assert generator.include_patterns == ["*.py"]
+    assert generator.verbose is True
+
+def test_vcs_handling(temp_project):
+    """Test VCS directory handling using temporary directory."""
+    # Create VCS directories and files
+    vcs_dir = temp_project / '.git'
+    vcs_dir.mkdir()
+    vcs_file = vcs_dir / 'config'
+    vcs_file.write_text("VCS config content")
+    
+    nested_vcs = temp_project / 'src' / '.svn'
+    nested_vcs.mkdir(parents=True)
+    nested_file = nested_vcs / 'entries'
+    nested_file.write_text("SVN entries")
+    
+    # Create normal file
+    normal_file = temp_project / 'src' / 'main.py'
+    normal_file.write_text("print('hello')")
+    
+    generator = DocumentationGenerator(str(temp_project))
+    
+    # Test file inclusion logic
+    assert generator._should_include_file(vcs_file) is False
+    assert generator._should_include_file(nested_file) is False
+    assert generator._should_include_file(normal_file) is True
+
+def test_existing_structure(test_data_dir):
+    """Test using the programmatically created test directory."""
+    # Verify directory structure
+    assert (test_data_dir / "src/main.py").exists()
+    assert (test_data_dir / "docs/image.png").exists()
+    assert (test_data_dir / ".git/HEAD").exists()
+    
+    # Verify file contents
+    gitignore_content = (test_data_dir / ".gitignore").read_text()
+    assert "*.pyc" in gitignore_content
+    assert "__pycache__/" in gitignore_content
+    
+    dirtarget_content = (test_data_dir / ".dirtarget").read_text()
+    assert "*.py" in dirtarget_content
+    assert "*.md" in dirtarget_content
+    
+    # Verify binary file
+    png_file = test_data_dir / "docs/image.png"
+    assert png_file.stat().st_size == 24
+    
+    # Verify large file
+    large_file = test_data_dir / "docs/large.txt"
+    assert large_file.stat().st_size > 1024*1024  # Over 1MB
+
+def test_load_patterns(test_data_dir):
+    """Test pattern loading from various sources."""
+    generator = DocumentationGenerator(
+        str(test_data_dir),
+        additional_ignore_files=[".dirignore"],
+        target_file=str(test_data_dir / ".dirtarget")
+    )
+    generator._load_patterns()
+    
+    # Check patterns
+    base_dir_str = str(test_data_dir.resolve())
+    assert base_dir_str in generator.ignore_patterns
+    patterns = generator.ignore_patterns[base_dir_str]
+    assert "*.pyc" in patterns
+    assert "*.tmp" in patterns
+    assert "*.py" in generator.target_patterns
+
+def test_should_include_file(test_data_dir):
+    """Test file inclusion logic with pre-generated data."""
+    generator = DocumentationGenerator(str(test_data_dir))
+    generator._load_patterns()
+    
+    # Test inclusions
+    readme_file = test_data_dir / "README.md"
+    assert generator._should_include_file(readme_file) is True
+    
+    # Test excluded package-lock.json (from .dirignore)
+    package_lock = test_data_dir / "package-lock.json"
+    assert generator._should_include_file(package_lock) is False
+
+def test_generate_documentation(test_data_dir, tmp_path):
+    """Test full documentation generation with pre-built data."""
+    output_file = tmp_path / "output.txt"
+    generator = DocumentationGenerator(
+        str(test_data_dir),
+        output_file=str(output_file),
+        verbose=True
+    )
+    generator.generate()
+
+    content = output_file.read_text()
+
+    # Split content into directory structure and file contents
+    parts = content.split("File Contents\n-------------\n")
+    dir_structure = parts[0]
+    file_contents = parts[1] if len(parts) > 1 else ''
+
+    # Verify ignored file in directory structure
+    assert "package-lock.json" not in dir_structure, (
+        f"package-lock.json found in directory structure:\n{dir_structure}"
+    )
+
+    # Verify ignored file content is not included
+    assert "File: package-lock.json" not in file_contents, (
+        f"package-lock.json content included:\n{file_contents}"
+    )
+
+def test_large_file_handling(test_data_dir):
+    """Test that large files are skipped."""
+    large_file = test_data_dir / "docs/large.txt"
+    generator = DocumentationGenerator(str(test_data_dir))
+    
+    # File should be included in structure but not content
+    assert generator._should_include_file(large_file) is True
+    assert generator._should_include_content(large_file) is False
+
+def test_binary_file_handling(test_data_dir):
+    """Test that binary files are excluded from content."""
+    png_file = test_data_dir / "docs/image.png"
+    generator = DocumentationGenerator(str(test_data_dir))
+
+    # Should be included in structure but excluded from content
+    assert generator._should_include_file(png_file) is True  # Included in structure
+    assert generator._should_include_content(png_file) is False  # Excluded from content
+--------------------------------------------------------------------------------
+
+File: pyproject.toml
+--------------------------------------------------------------------------------
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dircontextgen"
+version = "0.1.0"
+description = "Generate context documentation from directory contents with advanced filtering"
+authors = [{name = "Mithran Mohanraj", email = "mithran.mohanraj@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+    "click>=8.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+    "pylint>=3.0.0",
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+]
+
+[project.scripts]
+dircontextgen = "dircontextgen.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "--cov=dircontextgen --cov-report=term-missing -v"
+
+[tool.black]
+line-length = 88
+target-version = ['py37']
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.7"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+--------------------------------------------------------------------------------
+
+File: tests/test_data/README.md
+--------------------------------------------------------------------------------
+# Test Project
+This is a test project.
+--------------------------------------------------------------------------------
+
+File: dircontextgen/core.py
+--------------------------------------------------------------------------------
+# dircontextgen/core.py
+from pathlib import Path
+from typing import List, Optional, Dict, Set, Tuple
+import os
+import fnmatch
+from .utils.ignore_patterns import (
+    read_ignore_patterns,
+    is_path_ignored
+)
+from .utils.file_handling import (
+    is_binary_file,
+    get_file_content,
+    read_target_patterns,
+    is_vcs_directory
+)
+from .utils.tree_generation import generate_tree
+
+class DocumentationGenerator:
+    def __init__(
+        self,
+        base_dir: str,
+        output_file: str = "project_documentation.txt",
+        additional_ignore_files: List[str] = None,
+        target_file: Optional[str] = None,
+        tree_only: bool = False,
+        max_file_size: int = 1024*1024,
+        exclude_patterns: List[str] = None,
+        include_patterns: List[str] = None,
+        verbose: bool = False,
+        structure_mode: str = "minimal",
+        collapse_threshold: int = 10
+    ):
+        self.base_dir = Path(base_dir)
+        self.output_file = Path(output_file)
+        self.additional_ignore_files = additional_ignore_files or []
+        self.target_file = target_file
+        self.tree_only = tree_only
+        self.max_file_size = max_file_size
+        self.exclude_patterns = exclude_patterns or []
+        self.include_patterns = include_patterns or []
+        self.verbose = verbose
+        self.structure_mode = structure_mode
+        self.collapse_threshold = collapse_threshold
+        
+        # Initialize pattern storage
+        self.ignore_patterns: Dict[str, List[str]] = {}
+        self.target_patterns: List[str] = []
+        
+    def _load_patterns(self) -> None:
+        """Load all ignore and target patterns."""
+        # Load ignore patterns from .gitignore and .dirignore
+        self.ignore_patterns = read_ignore_patterns(
+            self.base_dir,
+            additional_files=self.additional_ignore_files
+        )
+        
+        # Load target patterns if specified
+        if self.target_file:
+            self.target_patterns = read_target_patterns(self.target_file)
+            
+        # Add CLI-provided patterns
+        self.target_patterns.extend(self.include_patterns)
+        
+        # Add CLI exclude patterns to root ignore patterns
+        base_dir_str = str(self.base_dir.resolve())
+        root_ignores = self.ignore_patterns.get(base_dir_str, [])
+        root_ignores.extend(self.exclude_patterns)
+        self.ignore_patterns[base_dir_str] = root_ignores
+
+    def _should_include_file(self, file_path: Path) -> bool:
+        """Determine if a file should be included in the documentation."""
+        try:
+            # Always exclude VCS directories
+            if is_vcs_directory(file_path):
+                if self.verbose:
+                    print(f"Skipping VCS directory/file: {file_path}")
+                return False
+                
+            abs_file = file_path.resolve()
+            abs_base = self.base_dir.resolve()
+            rel_path = abs_file.relative_to(abs_base)
+            
+            # In complete or smart mode, include all non-VCS files
+            if self.structure_mode in ("complete", "smart"):
+                return True
+            
+            # Check if file is ignored
+            if is_path_ignored(abs_file, self.ignore_patterns, abs_base):
+                return False
+                
+            # If target patterns exist, file must match at least one
+            if self.target_patterns:
+                return any(
+                    fnmatch.fnmatch(str(rel_path), pattern)
+                    for pattern in self.target_patterns
+                )
+                
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"Error checking file inclusion for {file_path}: {e}")
+            return False
+
+    def _should_include_content(self, file_path: Path) -> bool:
+        """Determine if a file's content should be included."""
+        if self.tree_only:
+            return False
+            
+        try:
+            # Always exclude VCS files
+            if is_vcs_directory(file_path):
+                return False
+                
+            # Check file size
+            if file_path.stat().st_size > self.max_file_size:
+                if self.verbose:
+                    print(f"Skipping content of large file: {file_path}")
+                return False
+                
+            # Check if binary
+            if is_binary_file(file_path):
+                if self.verbose:
+                    print(f"Skipping binary file: {file_path}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"Error checking content inclusion for {file_path}: {e}")
+            return False
+
+    def generate(self) -> None:
+        """Generate the documentation file."""
+        # Load all patterns
+        self._load_patterns()
+        
+        # Generate tree and get matching files
+        tree_lines, matching_files = generate_tree(
+            self.base_dir,
+            self._should_include_file,
+            self.verbose,
+            self.structure_mode
+        )
+        
+        # Write documentation
+        with open(self.output_file, 'w', encoding='utf-8') as f:
+            # Write header
+            f.write("Project Documentation\n")
+            f.write("===================\n\n")
+            
+            # Write directory tree
+            f.write("Directory Structure\n")
+            f.write("------------------\n")
+            f.write("\n".join(tree_lines))
+            f.write("\n\n")
+            
+            # Write file contents if not tree_only and in minimal mode
+            if not self.tree_only and self.structure_mode == "minimal":
+                f.write("File Contents\n")
+                f.write("-------------\n")
+                
+                for file_path in matching_files:
+                    if self._should_include_content(file_path):
+                        rel_path = file_path.relative_to(self.base_dir)
+                        rel_path_posix = rel_path.as_posix()  # Convert to POSIX path
+                        content = get_file_content(file_path)
+                        
+                        if content is not None:
+                            f.write(f"\nFile: {rel_path_posix}\n")
+                            f.write("-" * 80 + "\n")
+                            f.write(content)
+                            f.write("\n" + "-" * 80 + "\n")
+--------------------------------------------------------------------------------
+
+File: tests/test_data/src/main.py
+--------------------------------------------------------------------------------
+def main():
+    pass
+--------------------------------------------------------------------------------
+
+File: tests/test_data/tests/test_main.py
+--------------------------------------------------------------------------------
+def test_main():
+    pass
+--------------------------------------------------------------------------------
+
+File: tests/test_data/.dirignore
+--------------------------------------------------------------------------------
+*.tmp
+*.bak
+package-lock.json
+--------------------------------------------------------------------------------
+
+File: .gitignore
+--------------------------------------------------------------------------------
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Project specific
+project_documentation.txt
+target_documentation.txt
+.dirignore
+.dirtarget
+tests/test_data/
+
+# OS specific
+.DS_Store
+Thumbs.db
+--------------------------------------------------------------------------------
+
+File: dircontextgen/cli.py
+--------------------------------------------------------------------------------
+# dircontextgen/cli.py
+import click
+from pathlib import Path
+from typing import List, Optional
+
+@click.command()
+@click.argument('directory', type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.option('--output-file', '-o', type=click.Path(), 
+              default='project_documentation.txt',
+              help='Output file path')
+@click.option('--ignore-file', '-i', type=click.Path(exists=True), 
+              multiple=True,
+              help='Additional ignore file paths')
+@click.option('--target-file', '-t', type=click.Path(exists=True),
+              help='Target file for explicit inclusion (like .dirtarget)')
+@click.option('--tree-only', is_flag=True,
+              help='Only show files in tree without contents')
+@click.option('--max-file-size', type=click.INT, 
+              default=1024*1024,  # 1MB default
+              help='Skip files larger than size in bytes')
+@click.option('--exclude-pattern', '-e', multiple=True,
+              help='Additional patterns to exclude')
+@click.option('--include-pattern', '-n', multiple=True,
+              help='Patterns to explicitly include')
+@click.option('--verbose', '-v', is_flag=True,
+              help='Enable verbose output')
+@click.option('--show-directory-structure', type=click.Choice(['minimal', 'complete', 'smart'], 
+              case_sensitive=False), default='minimal',
+              help='Choose how to display directory structure:\n'
+                   'minimal: Only show included files (default)\n'
+                   'complete: Show all non-VCS files\n'
+                   'smart: Show all with collapsed large directories')
+@click.option('--collapse-threshold', type=click.INT, default=10,
+              help='Number of files before collapsing a directory in smart mode')
+def main(directory: str,
+         output_file: str,
+         ignore_file: tuple,
+         target_file: Optional[str],
+         tree_only: bool,
+         max_file_size: int,
+         exclude_pattern: tuple,
+         include_pattern: tuple,
+         verbose: bool,
+         show_directory_structure: str,
+         collapse_threshold: int) -> None:
+    """Generate documentation from directory contents with advanced filtering.
+    
+    This tool helps you create context files optimized for AI coding assistants
+    by generating a clear view of your project structure and relevant file contents.
+    """
+    try:
+        from .core import DocumentationGenerator
+        
+        # Initialize generator with CLI options
+        generator = DocumentationGenerator(
+            base_dir=directory,
+            output_file=output_file,
+            additional_ignore_files=list(ignore_file),
+            target_file=target_file,
+            tree_only=tree_only,
+            max_file_size=max_file_size,
+            exclude_patterns=list(exclude_pattern),
+            include_patterns=list(include_pattern),
+            verbose=verbose,
+            structure_mode=show_directory_structure,
+            collapse_threshold=collapse_threshold
+        )
+        
+        # Generate documentation
+        generator.generate()
+        
+        click.echo(f"Documentation generated successfully in {output_file}")
+        
+    except Exception as e:
+        click.echo(f"Error: {str(e)}", err=True)
+        raise click.Abort()
+--------------------------------------------------------------------------------
+
+File: setup.cfg
+--------------------------------------------------------------------------------
+# setup.cfg
+[metadata]
+name = dircontextgen
+version = 0.1.0
+description = Generate context documentation from directory contents with advanced filtering
+long_description = file: README.md
+long_description_content_type = text/markdown
+
+[options]
+packages = find:
+python_requires = >=3.7
+install_requires =
+    click>=8.0.0
+
+[options.entry_points]
+console_scripts =
+    dircontextgen = dircontextgen.cli:main
+--------------------------------------------------------------------------------
+
+File: tests/test_data/.gitignore
+--------------------------------------------------------------------------------
+*.pyc
+__pycache__/
+*.log
+--------------------------------------------------------------------------------
+
+File: tests/test_utils.py
+--------------------------------------------------------------------------------
+# tests/test_utils.py
+from pathlib import Path
+import shutil
+
+TEST_DATA_DIR = Path("tests/test_data")
+
+def create_test_directory(debug: bool = False):
+    """Create the test directory structure programmatically."""
+    if TEST_DATA_DIR.exists():
+        if debug:
+            print("Test directory already exists, skipping creation")
+        return
+
+    # Clean up any existing directory
+    shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
+    
+    # Create base directories
+    dirs = [
+        TEST_DATA_DIR / "src/submodule",
+        TEST_DATA_DIR / "docs",
+        TEST_DATA_DIR / "tests",
+        TEST_DATA_DIR / ".git/objects/4e",
+        TEST_DATA_DIR / ".git/refs/heads",
+        TEST_DATA_DIR / ".git/refs/tags",
+        TEST_DATA_DIR / ".git/hooks",
+        TEST_DATA_DIR / ".git/info",
+    ]
+    
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+
+    # Create .git files
+    write_text(TEST_DATA_DIR / ".git/HEAD", "ref: refs/heads/main")
+    write_text(TEST_DATA_DIR / ".git/config", """[core]
+    repositoryformatversion = 0
+    filemode = false
+    bare = false
+    logallrefupdates = true
+[remote "origin"]
+    url = https://github.com/username/dircontextgen.git
+    fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+    remote = origin
+    merge = refs/heads/main""")
+    write_text(TEST_DATA_DIR / ".git/description", 
+              "Unnamed repository; edit this file 'description' to name the repository.")
+    write_text(TEST_DATA_DIR / ".git/info/exclude", """# git ls-files --others --exclude-from=.git/info/exclude
+# Lines that start with '#' are comments.
+# For a project mostly in C, the following would be a good set of
+# exclude patterns (uncomment them if you want to use them):
+# *.[oa]
+# *~""")
+    write_text(TEST_DATA_DIR / ".git/packed-refs", """# pack-refs with: peeled fully-peeled sorted 
+refs/remotes/origin/main 4e1243bd22c66e76c2ba9eddc1f91394e57f9f83""")
+    write_text(TEST_DATA_DIR / ".git/objects/4e/1243bd22c66e76c2ba9eddc1f91394e57f9f83", "x" * 100)
+
+    # Create project files
+    write_text(TEST_DATA_DIR / "README.md", "# Test Project\nThis is a test project.")
+    write_text(TEST_DATA_DIR / "setup.py", "from setuptools import setup\nsetup(name='test')")
+    write_text(TEST_DATA_DIR / "requirements.txt", "pytest\npytest-cov")
+    write_text(TEST_DATA_DIR / ".gitignore", "*.pyc\n__pycache__/\n*.log")
+    write_text(TEST_DATA_DIR / ".dirignore", "*.tmp\n*.bak\npackage-lock.json")
+    write_text(TEST_DATA_DIR / ".dirtarget", "*.py\n*.md\n*.txt")
+    write_text(TEST_DATA_DIR / "src/main.py", "def main():\n    pass")
+    write_text(TEST_DATA_DIR / "src/utils.py", "def helper():\n    pass")
+    write_text(TEST_DATA_DIR / "tests/test_main.py", "def test_main():\n    pass")
+    write_text(TEST_DATA_DIR / "src/submodule/.gitignore", "*.cache")
+    
+    # Create binary files
+    png_bytes = bytes([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54,
+        0x78, 0xDA, 0x63, 0x64, 0x60, 0x60, 0x60, 0x00
+    ])
+    write_binary(TEST_DATA_DIR / "docs/image.png", png_bytes)
+    
+    # Create large text file
+    large_content = "x" * 1048677
+    write_text(TEST_DATA_DIR / "docs/large.txt", large_content)
+    
+    # Create package-lock.json
+    write_text(TEST_DATA_DIR / "package-lock.json", """{
+  "name": "test-project",
+  "version": "1.0.0",
+  "lockfileVersion": 2,
+  "dependencies": {
+    "test-dep": {
+      "version": "1.0.0"
+    }
+  }
+}""")
+
+def write_text(path: Path, content: str):
+    """Write text content to a file with proper UTF-8 encoding."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+def write_binary(path: Path, content: bytes):
+    """Write binary content to a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+def cleanup_test_directory():
+    """Clean up the test directory."""
+    shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
+--------------------------------------------------------------------------------
+
+File: dircontextgen/utils/file_handling.py
+--------------------------------------------------------------------------------
+# dircontextgen/utils/file_handling.py
+from pathlib import Path
+from typing import Optional, Set, List
+
+def get_vcs_directories() -> Set[str]:
+    """Return a set of version control system directories to exclude."""
+    return {
+        '.git',           # Git
+        '.svn',          # Subversion
+        '.hg',           # Mercurial
+        '.bzr',          # Bazaar
+        'CVS',           # CVS
+        '_darcs',        # Darcs
+        '.fossil',       # Fossil
+        '.pijul',        # Pijul
+        '.repo',         # Android repo tool
+    }
+
+def get_text_file_extensions() -> Set[str]:
+    """Return a set of common text file extensions."""
+    return {
+        # Web development
+        '.html', '.htm', '.css', '.scss', '.sass', '.less', '.js', '.jsx',
+        '.ts', '.tsx', '.json', '.xml', '.svg', '.vue', '.php', '.asp',
+        '.aspx', '.jsp',
+        
+        # Programming languages
+        '.py', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.go',
+        '.rs', '.swift', '.kt', '.kts', '.scala', '.pl', '.pm', '.t',
+        '.sh', '.bash', '.ps1', '.psm1', '.r', '.m', '.mm', '.sql',
+        '.lua', '.tcl', '.groovy',
+        
+        # Configuration and data
+        '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties',
+        '.env', '.example', '.template', '.lock', '.dockerfile',
+        '.dockerignore',
+        
+        # Documentation and text
+        '.md', '.markdown', '.rst', '.txt', '.text', '.asciidoc', '.adoc',
+        '.textile', '.rdoc', '.pod', '.wiki', '.org', '.log',
+        
+        # Other development files
+        '.gitignore', '.dirignore', '.eslintrc', '.prettierrc', '.babelrc',
+        '.editorconfig', '.htaccess', '.nginx', '.csv', '.tsv'
+    }
+
+def is_vcs_directory(path: Path) -> bool:
+    """Check if a path is a VCS directory or inside one."""
+    vcs_dirs = get_vcs_directories()
+    # Check if any part of the path is a VCS directory
+    return any(part.name in vcs_dirs for part in path.parents) or path.name in vcs_dirs
+
+def is_binary_file(file_path: Path) -> bool:
+    """
+    Determine if a file is binary.
+    First checks extension, then examines content if needed.
+    """
+    # Skip VCS directories entirely
+    if is_vcs_directory(file_path):
+        return True
+        
+    # If it's a known text extension, it's not binary
+    if file_path.suffix.lower() in get_text_file_extensions():
+        return False
+        
+    try:
+        # Read the first chunk of the file
+        chunk_size = 8192
+        with open(file_path, 'rb') as f:
+            chunk = f.read(chunk_size)
+            
+        # Empty files are considered text
+        if not chunk:
+            return False
+            
+        # Check for common binary file signatures
+        if chunk.startswith(b'\x89PNG\r\n\x1a\n'):  # PNG signature
+            return True
+        if chunk.startswith(b'GIF87a') or chunk.startswith(b'GIF89a'):  # GIF
+            return True
+        if chunk.startswith(b'\xFF\xD8'):  # JPEG
+            return True
+        if chunk.startswith(b'PK\x03\x04'):  # ZIP and derivatives
+            return True
+            
+        # Count null bytes and other control characters
+        null_count = chunk.count(b'\x00')
+        control_chars = sum(1 for b in chunk if b < 32 and b not in (9, 10, 13))  # tab, LF, CR
+        
+        # If we have nulls or too many control chars, it's binary
+        if null_count > 0 or (control_chars / len(chunk)) > 0.3:
+            return True
+            
+        return False
+            
+    except Exception as e:
+        print(f"Warning: Error checking if file is binary {file_path}: {e}")
+        return True
+
+def get_file_content(file_path: Path) -> Optional[str]:
+    """Get content of a text file."""
+    # Skip VCS directories entirely
+    if is_vcs_directory(file_path):
+        return None
+        
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            return content
+    except Exception as e:
+        print(f"Warning: Error reading file {file_path}: {e}")
+        return None
+
+def read_target_patterns(target_file: str) -> List[str]:
+    """Read patterns from a target file (like .dirtarget)."""
+    patterns = []
+    try:
+        with open(target_file, 'r', encoding='utf-8') as f:
+            patterns = [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith('#')
+            ]
+    except Exception as e:
+        print(f"Warning: Error reading target file {target_file}: {e}")
+    return patterns
+--------------------------------------------------------------------------------
+
+File: dircontextgen/utils/tree_generation.py
+--------------------------------------------------------------------------------
+# dircontextgen/utils/tree_generation.py
+from pathlib import Path
+from typing import Callable, List, Tuple, Set, Dict
+from collections import defaultdict
+import os
+
+def should_collapse_directory(path: Path, file_count_threshold: int = 10) -> Tuple[bool, int]:
+    """
+    Determine if a directory should be collapsed in smart mode.
+    Returns (should_collapse, file_count).
+    """
+    try:
+        files = list(path.rglob('*'))
+        file_count = sum(1 for f in files if f.is_file())
+        
+        # Collapse if too many files
+        if file_count > file_count_threshold:
+            return True, file_count
+            
+        # Check for common large directories
+        if path.name.lower() in {
+            'node_modules', 'logs', 'temp', 'cache', 
+            'build', 'dist', 'target', 'out',
+            '__pycache__', '.pytest_cache'
+        }:
+            return True, file_count
+            
+        return False, file_count
+    except Exception:
+        return True, 0
+
+def generate_tree(
+    base_dir: Path,
+    include_filter: Callable[[Path], bool],
+    verbose: bool = False,
+    structure_mode: str = "minimal"
+) -> Tuple[List[str], Set[Path]]:
+    """Generate a tree representation of the directory structure.
+    
+    Args:
+        base_dir: Base directory to start from
+        include_filter: Function to determine if a file should be included
+        verbose: Enable verbose output
+        structure_mode: One of "minimal", "complete", or "smart"
+    """
+    if structure_mode == "smart":
+        return [
+            "Directory Structure (Smart Mode) - Coming Soon",
+            "---------------------------------------------",
+            "This feature is under development and will incorporate",
+            "AI-powered context-aware directory analysis."
+        ], set()
+
+    tree_lines = []
+    matching_files = set()
+
+    def _generate_tree_recursive(
+        current_dir: Path,
+        prefix: str = "",
+        is_last: bool = True,
+    ) -> None:
+        """Recursively generate tree structure."""
+        try:
+            # Get directory contents
+            items = sorted(current_dir.iterdir(), key=lambda x: (x.is_file(), x.name))
+
+            if structure_mode == "minimal":
+                # Only show items that pass the filter
+                items = [item for item in items if include_filter(item)]
+            else:  # complete mode
+                from .file_handling import is_vcs_directory
+                items = [item for item in items if not is_vcs_directory(item)]
+
+            # Process each item
+            for i, item in enumerate(items):
+                is_last_item = (i == len(items) - 1)
+
+                # Generate the line prefix
+                if current_dir != base_dir:
+                    line_prefix = prefix + ("└── " if is_last_item else "├── ")
+                else:
+                    line_prefix = prefix
+
+                # Add item to tree
+                tree_lines.append(f"{line_prefix}{item.name}")
+
+                # Process directory contents
+                if item.is_dir():
+                    new_prefix = prefix + ("    " if is_last_item else "│   ")
+                    _generate_tree_recursive(item, new_prefix, is_last_item)
+                elif structure_mode == "minimal" and include_filter(item):
+                    matching_files.add(item)
+                elif structure_mode == "complete":
+                    matching_files.add(item)
+
+        except Exception as e:
+            if verbose:
+                print(f"Error accessing {current_dir}: {e}")
+
+    # Generate the tree
+    _generate_tree_recursive(base_dir)
+    
+    return tree_lines, matching_files
+--------------------------------------------------------------------------------
+
+File: .github/ISSUE_TEMPLATE/bug_report.yml
+--------------------------------------------------------------------------------
+name: Bug Report
+description: File a bug report
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is
+      placeholder: When I run X command, Y happens instead of Z...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Create directory '...'
+        2. Run command '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+      placeholder: The command should have generated documentation for...
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample Code/Files
+      description: If applicable, add sample code or file structure that demonstrates the issue
+      render: shell
+      placeholder: |
+        project/
+        ├── src/
+        │   └── main.py
+        └── .gitignore
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: What version of Python are you running?
+      placeholder: e.g., 3.8.5
+    validations:
+      required: true
+
+  - type: input
+    id: package-version
+    attributes:
+      label: dircontextgen Version
+      description: What version of dircontextgen are you running?
+      placeholder: e.g., 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
+--------------------------------------------------------------------------------
+
+File: .github/workflows/publish.yml
+--------------------------------------------------------------------------------
+# .github/workflows/publish.yml
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dircontextgen
+    permissions:
+      id-token: write
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[dev]
+    
+    - name: Build package
+      run: python -m build
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+--------------------------------------------------------------------------------
+
+File: tests/test_data/requirements.txt
+--------------------------------------------------------------------------------
+pytest
+pytest-cov
+--------------------------------------------------------------------------------
+
+File: tests/test_data/src/utils.py
+--------------------------------------------------------------------------------
+def helper():
+    pass
+--------------------------------------------------------------------------------
+
+File: tests/__init__.py
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+
+File: dircontextgen/utils/ignore_patterns.py
+--------------------------------------------------------------------------------
+# dircontextgen/utils/ignore_patterns.py
+from pathlib import Path
+from typing import Dict, List, Optional
+import os
+import fnmatch
+
+from .file_handling import is_vcs_directory
+
+def read_ignore_patterns(
+    base_dir: Path,
+    additional_files: Optional[List[str]] = None
+) -> Dict[str, List[str]]:
+    """Read ignore patterns from .gitignore and .dirignore files."""
+    patterns: Dict[str, List[str]] = {}
+    additional_files = additional_files or []
+    
+    def read_patterns_from_file(ignore_file: Path) -> List[str]:
+        """Read patterns from a single ignore file."""
+        try:
+            with open(ignore_file, 'r', encoding='utf-8') as f:
+                return [
+                    line.strip()
+                    for line in f
+                    if line.strip() and not line.strip().startswith('#')
+                ]
+        except Exception as e:
+            print(f"Warning: Error reading ignore file {ignore_file}: {e}")
+            return []
+    
+    # Walk through directory tree
+    for dirpath, _, _ in os.walk(base_dir):
+        current_dir = Path(dirpath).resolve()
+        dir_patterns = []
+        
+        # Check for .gitignore and .dirignore
+        for ignore_file in ['.gitignore', '.dirignore']:
+            ignore_path = current_dir / ignore_file
+            if ignore_path.is_file():
+                dir_patterns.extend(read_patterns_from_file(ignore_path))
+        
+        # Add patterns from additional ignore files
+        for ignore_file in additional_files:
+            ignore_path = current_dir / ignore_file
+            if ignore_path.is_file():
+                dir_patterns.extend(read_patterns_from_file(ignore_path))
+        
+        if dir_patterns:
+            patterns[str(current_dir)] = dir_patterns
+    
+    return patterns
+
+def is_path_ignored(file_path: Path, ignore_patterns: Dict[str, List[str]], base_dir: Path) -> bool:
+    """Check if a path should be ignored based on ignore patterns."""
+    if is_vcs_directory(file_path):
+        return True
+    
+    abs_base = base_dir.resolve()
+    try:
+        rel_path = file_path.relative_to(abs_base)
+    except ValueError:
+        # File outside base directory
+        return True
+        
+    rel_path_str = str(rel_path).replace('\\', '/')
+    current_dir = file_path.parent.resolve()
+
+    # Check patterns from all relevant directories
+    while True:
+        dir_str = str(current_dir)
+        patterns = ignore_patterns.get(dir_str, [])
+        
+        for pattern in patterns:
+            pattern = pattern.strip()
+            if not pattern:
+                continue
+
+            # Handle directory patterns
+            if pattern.endswith('/'):
+                dir_pattern = pattern[:-1]
+                if any(fnmatch.fnmatch(part, dir_pattern) for part in rel_path.parts):
+                    return True
+                    
+            # Handle root directory patterns
+            elif pattern.startswith('/'):
+                try:
+                    local_path = rel_path.relative_to(current_dir.relative_to(abs_base))
+                except ValueError:
+                    continue
+                    
+                if fnmatch.fnmatch(str(local_path), pattern[1:]):
+                    return True
+                    
+            # Normal pattern matching
+            else:
+                if fnmatch.fnmatch(str(rel_path), pattern):
+                    return True
+                # Also check parent directory patterns
+                if '/' in pattern and fnmatch.fnmatch(str(rel_path), f"*/{pattern}"):
+                    return True
+
+        if current_dir == abs_base:
+            break
+            
+        current_dir = current_dir.parent
+
+    return False
+--------------------------------------------------------------------------------
+
+File: tests/test_data/setup.py
+--------------------------------------------------------------------------------
+from setuptools import setup
+setup(name='test')
+--------------------------------------------------------------------------------
+
+File: tests/test_data/.dirtarget
+--------------------------------------------------------------------------------
+*.py
+*.md
+*.txt
+--------------------------------------------------------------------------------
+
+File: tests/test_data/src/submodule/.gitignore
+--------------------------------------------------------------------------------
+*.cache
+--------------------------------------------------------------------------------
+
+File: dircontextgen/utils/__init__.py
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+
+File: .github/ISSUE_TEMPLATE/feature_request.yml
+--------------------------------------------------------------------------------
+name: Feature Request
+description: Suggest an idea for this project
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a new feature!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear and concise description of what the problem is
+      placeholder: I'm always frustrated when [...]
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like
+      description: A clear and concise description of what you want to happen
+      placeholder: |
+        When I run the command, it should...
+        The output should look like...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered
+      description: A clear and concise description of any alternative solutions or features you've considered
+      placeholder: |
+        I thought about doing X instead, but...
+        Another approach would be Y, however...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to you?
+      options:
+        - Nice to have
+        - Would improve my workflow
+        - Blocking my usage of the tool
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other context or examples about the feature request here
+      placeholder: |
+        Example usage:
+        ```bash
+        dircontextgen --new-flag value
+        ```
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contributions
+    attributes:
+      label: Contribution
+      description: Would you be willing to contribute this feature?
+      options:
+        - label: I'm willing to submit a PR for this feature
+          required: false
+        - label: I'd like to discuss implementation details
+          required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this feature request, you agree to follow our Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
+--------------------------------------------------------------------------------
+
+File: tests/test_data/package-lock.json
+--------------------------------------------------------------------------------
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "lockfileVersion": 2,
+  "dependencies": {
+    "test-dep": {
+      "version": "1.0.0"
+    }
+  }
+}
+--------------------------------------------------------------------------------
